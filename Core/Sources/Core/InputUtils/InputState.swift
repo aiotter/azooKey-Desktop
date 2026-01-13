@@ -73,7 +73,7 @@ public enum InputState: Sendable, Hashable {
                 }
             case .startUnicodeInput:
                 return (.enterUnicodeInputMode, .transition(.unicodeInput("")))
-            case .unknown, .navigation, .backspace, .enter, .escape, .function, .editSegment, .tab, .forget, .transformSelectedText:
+            case .confirm, .unknown, .navigation, .backspace, .enter, .escape, .function, .editSegment, .tab, .forget, .transformSelectedText:
                 return (.fallthrough, .fallthrough)
             }
         case .attachDiacritic(let diacritic):
@@ -101,7 +101,7 @@ public enum InputState: Sendable, Hashable {
                 return (.insertWithoutMarkedText(diacritic + "\t"), .transition(.none))
             case .startUnicodeInput:
                 return (.insertWithoutMarkedText(diacritic), .transition(.unicodeInput("")))
-            case .unknown, .space, .英数, .navigation, .editSegment, .suggest, .forget, .transformSelectedText:
+            case .confirm, .unknown, .space, .英数, .navigation, .editSegment, .suggest, .forget, .transformSelectedText:
                 return (.insertWithoutMarkedText(diacritic), .transition(.none))
             }
         case .composing:
@@ -116,7 +116,7 @@ public enum InputState: Sendable, Hashable {
                 } else {
                     return (.removeLastMarkedText, .basedOnBackspace(ifIsEmpty: .none, ifIsNotEmpty: .composing))
                 }
-            case .enter:
+            case .enter, .confirm:
                 return (.commitMarkedText, .transition(.none))
             case .escape:
                 return (.stopComposition, .transition(.none))
@@ -183,7 +183,7 @@ public enum InputState: Sendable, Hashable {
                 } else {
                     return (.removeLastMarkedText, .transition(.composing))
                 }
-            case .enter:
+            case .enter, .confirm:
                 return (.commitMarkedText, .transition(.none))
             case .space:
                 return (.enterCandidateSelectionMode, .transition(.selecting))
@@ -237,7 +237,7 @@ public enum InputState: Sendable, Hashable {
                 }
                 // FIXME: ここの動作はmacOSの標準と異なる。具体的には、macOSの標準ではselectingをcomposingに戻して入力を継続する動きになる。
                 return (.commitMarkedTextAndAppendPieceToMarkedText(string), .transition(.composing))
-            case .enter:
+            case .enter, .confirm:
                 return (.submitSelectedCandidate, .basedOnSubmitCandidate(ifIsEmpty: .none, ifIsNotEmpty: .previewing))
             case .backspace:
                 if event.modifierFlags.contains(.option) {
@@ -328,7 +328,7 @@ public enum InputState: Sendable, Hashable {
                 }
             case .suggest:
                 return (.requestReplaceSuggestion, .fallthrough)
-            case .enter:
+            case .enter, .confirm:
                 return (.submitReplaceSuggestionCandidate, .transition(.none))
             case .backspace, .escape:
                 return (.hideReplaceSuggestionWindow, .transition(.composing))
@@ -365,7 +365,7 @@ public enum InputState: Sendable, Hashable {
                     let newCodePoint = String(codePoint.dropLast())
                     return (.removeLastUnicodeInput, .transition(.unicodeInput(newCodePoint)))
                 }
-            case .enter, .space:
+            case .enter, .confirm, .space:
                 if codePoint.isEmpty {
                     return (.cancelUnicodeInput, .transition(.none))
                 } else {

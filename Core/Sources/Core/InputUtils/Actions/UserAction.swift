@@ -5,6 +5,7 @@ public enum UserAction {
     case input([InputPiece])
     case backspace
     case enter
+    case confirm
     case space(prefersFullWidthWhenInput: Bool)
     case escape
     case tab
@@ -198,6 +199,8 @@ public enum UserAction {
         switch eventCore.keyCode {
         case 0x24, 0x4C: // Enter (0x24) and Numpad Enter (0x4C)
             return .enter
+        case 41: // Semicolon
+            return .confirm
         case 48: // Tab
             return .tab
         case 49: // Space
