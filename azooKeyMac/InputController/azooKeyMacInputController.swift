@@ -371,6 +371,15 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             enableSuggestion: aiBackendEnabled
         )
 
+        // 変換中に句読点などの記号を入力したら確定して記号を直接挿入する
+        if let handledPunctuation = self.handlePunctuationInput(
+            event: event,
+            userAction: userAction,
+            client: client
+        ) {
+            return handledPunctuation
+        }
+
         // セミコロンキーで確定する
         if let handledSemicolon = self.handleSemicolonConfirm(event: event, client: client) {
             return handledSemicolon
@@ -382,6 +391,49 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         }
 
         return handleClientAction(clientAction, clientActionCallback: clientActionCallback, client: client)
+    }
+
+    // 変換中に句読点などの記号を入力したら確定して記号を直接挿入する
+    @MainActor
+    private func handlePunctuationInput(event: NSEvent, userAction: UserAction, client: IMKTextInput) -> Bool? {
+        guard !event.modifierFlags.contains(.control),
+              !event.modifierFlags.contains(.option),
+              !event.modifierFlags.contains(.command),
+              self.inputLanguage == .japanese,
+              case .input(let pieces) = userAction else {
+            return nil
+        }
+
+        let inputText = String(pieces.compactMap {
+            switch $0 {
+            case .character(let c):
+                c
+            case .key(intention: let cint, input: let cinp, modifiers: _):
+                cint ?? cinp
+            case .compositionSeparator:
+                nil
+            }
+        })
+
+        let punctuationSet: Set<String> = ["、", "。", "！", "？", "，", "．", "!", "?"]
+        guard punctuationSet.contains(inputText) else {
+            return nil
+        }
+
+        switch self.inputState {
+        case .composing, .previewing, .selecting:
+            let handled = handleClientAction(.commitMarkedText, clientActionCallback: .transition(.none), client: client)
+            if handled {
+                client.insertText(inputText, replacementRange: NSRange(location: NSNotFound, length: 0))
+                return true
+            }
+        case .none:
+            client.insertText(inputText, replacementRange: NSRange(location: NSNotFound, length: 0))
+            return true
+        default:
+            break
+        }
+        return nil
     }
 
     // セミコロンキーで確定する
