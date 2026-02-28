@@ -363,7 +363,48 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             enableDebugWindow: Config.DebugWindow().value,
             enableSuggestion: aiBackendEnabled
         )
+
+        // セミコロンキーで確定する
+        if let handledSemicolon = self.handleSemicolonConfirm(event: event, client: client) {
+            return handledSemicolon
+        }
+
         return handleClientAction(clientAction, clientActionCallback: clientActionCallback, client: client)
+    }
+
+    // セミコロンキーで確定する
+    @MainActor
+    private func handleSemicolonConfirm(event: NSEvent, client: IMKTextInput) -> Bool? {
+        guard event.keyCode == 41, // Semicolon
+              !event.modifierFlags.contains(.control),
+              !event.modifierFlags.contains(.option),
+              !event.modifierFlags.contains(.command),
+              self.inputLanguage == .japanese else {
+            return nil
+        }
+
+        let handled: Bool = {
+            switch self.inputState {
+            case .none:
+                return true
+            case .composing, .previewing:
+                if self.segmentsManager.isEmpty { return true }
+                return handleClientAction(.commitMarkedText, clientActionCallback: .transition(.none), client: client)
+            case .selecting:
+                return handleClientAction(
+                    .submitSelectedCandidate,
+                    clientActionCallback: .basedOnSubmitCandidate(ifIsEmpty: .none, ifIsNotEmpty: .previewing),
+                    client: client
+                )
+            default:
+                return false
+            }
+        }()
+
+        if handled {
+            return true
+        }
+        return nil
     }
 
     private var inputStyle: InputStyle {
