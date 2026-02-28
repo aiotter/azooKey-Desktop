@@ -33,6 +33,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
     // ダブルタップ検出用
     private var lastKey: (time: TimeInterval, code: UInt16) = (0, 0)
+    // Enter再送時に1回だけIME処理をバイパスする
+    private var bypassNextReturnHandling: Bool = false
     private static let doubleTapInterval: TimeInterval = 0.5
     private static let candidateWindowInitialSize = CGSize(width: 400, height: 1000)
 
@@ -263,6 +265,11 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         guard event.type == .keyDown else {
             return false
         }
+        let isReturnKey = event.keyCode == 0x24 || event.keyCode == 0x4C
+        if isReturnKey, self.bypassNextReturnHandling {
+            self.bypassNextReturnHandling = false
+            return false
+        }
 
         // カスタムプロンプトショートカットのチェック
         if let matchedPrompt = checkCustomPromptShortcut(event: event) {
@@ -369,6 +376,11 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             return handledSemicolon
         }
 
+        // Returnキーは「確定のみ」の挙動に加えて改行を送信する
+        if let handledReturn = self.handleReturnKey(event: event, userAction: userAction, client: client) {
+            return handledReturn
+        }
+
         return handleClientAction(clientAction, clientActionCallback: clientActionCallback, client: client)
     }
 
@@ -405,6 +417,58 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             return true
         }
         return nil
+    }
+
+    // 元のEnterをそのままアプリへ渡すと、未確定文字列を含んだ送信とIME確定が競合する場合があるため、
+    // 先にIME側で確定して元イベントを消費し、確定後にEnterを再送する。
+    @MainActor
+    private func handleReturnKey(event: NSEvent, userAction: UserAction, client: IMKTextInput) -> Bool? {
+        guard event.keyCode == 0x24 || event.keyCode == 0x4C, case .enter = userAction else {
+            return nil
+        }
+
+        // これらの状態ではEnterの標準動作を優先し、改行再送は行わない。
+        let shouldUseStandardEnterHandling: Bool = switch self.inputState {
+        case .replaceSuggestion, .unicodeInput, .attachDiacritic:
+            true
+        default:
+            self.segmentsManager.isEmpty
+        }
+
+        let handled: Bool = {
+            guard !shouldUseStandardEnterHandling else { return false }
+
+            // 候補選択中の場合、まず最初に選択候補を確定する
+            if case .selecting = self.inputState {
+                let submitted = handleClientAction(
+                    .submitSelectedCandidate,
+                    clientActionCallback: .basedOnSubmitCandidate(ifIsEmpty: .none, ifIsNotEmpty: .previewing),
+                    client: client
+                )
+                guard submitted else { return false }
+                if self.segmentsManager.isEmpty { return true }
+            }
+
+            return handleClientAction(.commitMarkedText, clientActionCallback: .transition(.none), client: client)
+        }()
+
+        guard handled else { return nil }
+
+        self.bypassNextReturnHandling = true
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(event.keyCode), keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(event.keyCode), keyDown: false) else {
+            self.bypassNextReturnHandling = false
+            return false
+        }
+        DispatchQueue.main.async {
+            keyDown.post(tap: .cghidEventTap)
+            keyUp.post(tap: .cghidEventTap)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.bypassNextReturnHandling = false
+        }
+        return true
     }
 
     private var inputStyle: InputStyle {
