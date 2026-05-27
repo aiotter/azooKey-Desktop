@@ -421,15 +421,23 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         }
 
         switch self.inputState {
-        case .composing, .previewing, .selecting:
-            let handled = handleClientAction(.commitMarkedText, clientActionCallback: .transition(.none), client: client)
-            if handled {
-                client.insertText(inputText, replacementRange: NSRange(location: NSNotFound, length: 0))
-                return true
-            }
         case .none:
             client.insertText(inputText, replacementRange: NSRange(location: NSNotFound, length: 0))
             return true
+        case .composing, .previewing, .selecting:
+            let (clientAction, clientActionCallback) = inputState.event(
+                eventCore: event.keyEventCore,
+                userAction: userAction,
+                inputLanguage: self.inputLanguage,
+                liveConversionEnabled: Config.LiveConversion().value,
+                enableDebugWindow: Config.DebugWindow().value,
+                enableSuggestion: Config.AIBackendPreference().value != .off
+            )
+            let handledPunctuation = handleClientAction(clientAction, clientActionCallback: clientActionCallback, client: client)
+            guard handledPunctuation else {
+                return false
+            }
+            return handleClientAction(.commitMarkedText, clientActionCallback: .transition(.none), client: client)
         default:
             break
         }
